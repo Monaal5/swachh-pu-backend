@@ -14,10 +14,18 @@ from app.config import get_settings
 MASTER_TEST_OTP = "123456"  # Static master OTP for testing convenience
 
 
+import traceback
+from email.utils import formataddr
+
 def send_otp_email(recipient_email: str, otp_code: str):
     """Send OTP code via SMTP if configured."""
     settings = get_settings()
-    if not settings.smtp_user or not settings.smtp_password:
+    smtp_user = settings.smtp_user.strip() if settings.smtp_user else ""
+    smtp_password = settings.smtp_password.strip() if settings.smtp_password else ""
+    smtp_server = settings.smtp_server.strip() if settings.smtp_server else "smtp.gmail.com"
+    smtp_port = int(settings.smtp_port) if settings.smtp_port else 587
+
+    if not smtp_user or not smtp_password:
         print("[OTP SERVICE] SMTP user/password not configured in environment. Skipping actual email sending.")
         return
 
@@ -27,22 +35,34 @@ def send_otp_email(recipient_email: str, otp_code: str):
         f"If you did not request this code, please ignore this email."
     )
     msg["Subject"] = "Swachh PU - Your Verification OTP Code"
-    msg["From"] = settings.emails_from or settings.smtp_user
+    msg["From"] = settings.emails_from if settings.emails_from else formataddr(("Swachh PU", smtp_user))
     msg["To"] = recipient_email
 
-    try:
-        if settings.smtp_port == 465:
-            with smtplib.SMTP_SSL(settings.smtp_server, settings.smtp_port, timeout=15) as server:
-                server.login(settings.smtp_user, settings.smtp_password)
-                server.sendmail(settings.smtp_user, [recipient_email], msg.as_string())
-        else:
-            with smtplib.SMTP(settings.smtp_server, settings.smtp_port, timeout=15) as server:
-                server.starttls()
-                server.login(settings.smtp_user, settings.smtp_password)
-                server.sendmail(settings.smtp_user, [recipient_email], msg.as_string())
-        print(f"[OTP SERVICE] Email successfully dispatched to {recipient_email}")
-    except Exception as e:
-        print(f"[OTP SERVICE] Failed to send email via SMTP ({settings.smtp_server}:{settings.smtp_port}): {str(e)}")
+    # Try primary configured port, with fallback if connection fails
+    ports_to_try = [smtp_port]
+    fallback_port = 587 if smtp_port == 465 else 465
+    if fallback_port not in ports_to_try:
+        ports_to_try.append(fallback_port)
+
+    for port in ports_to_try:
+        try:
+            print(f"[OTP SERVICE] Attempting to send email via SMTP ({smtp_server}:{port})...")
+            if port == 465:
+                with smtplib.SMTP_SSL(smtp_server, port, timeout=15) as server:
+                    server.login(smtp_user, smtp_password)
+                    server.sendmail(smtp_user, [recipient_email], msg.as_string())
+            else:
+                with smtplib.SMTP(smtp_server, port, timeout=15) as server:
+                    server.ehlo()
+                    server.starttls()
+                    server.ehlo()
+                    server.login(smtp_user, smtp_password)
+                    server.sendmail(smtp_user, [recipient_email], msg.as_string())
+            print(f"[OTP SERVICE] Email successfully dispatched to {recipient_email} via port {port}")
+            return
+        except Exception as e:
+            print(f"[OTP SERVICE] Failed to send email via SMTP ({smtp_server}:{port}): {str(e)}")
+            print(traceback.format_exc())
 
 
 async def generate_and_save_otp(user_id: str, email: str = None) -> str:
