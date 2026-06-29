@@ -109,6 +109,7 @@ async def signup_student(data: StudentSignUpRequest) -> AuthResponse:
         .insert({
             "name": data.name,
             "email": data.email,
+            "phone": data.phone,
             "password_hash": pwd_hash,
             "role": "student",
             "is_email_verified": False,
@@ -117,13 +118,13 @@ async def signup_student(data: StudentSignUpRequest) -> AuthResponse:
     )
     user = user_res.data[0]
 
-    # Insert student profile
+    # Insert student profile (students are automatically verified upon registration)
     admin.table("student_profiles").insert({
         "user_id": user["id"],
         "roll_no": data.roll_no,
-        "id_card_image": data.id_card_image,
-        "verification_status": "pending",
+        "verification_status": "verified",
     }).execute()
+
 
     # Generate OTP
     otp_code = await generate_and_save_otp(user["id"], data.email)
@@ -134,12 +135,14 @@ async def signup_student(data: StudentSignUpRequest) -> AuthResponse:
             email=user["email"],
             name=user["name"],
             role=user["role"],
+            phone=user.get("phone"),
             is_email_verified=False,
-            verification_status="pending",
+            verification_status="verified",
         ),
-        message="Student registered successfully. Please verify your OTP sent to email and await ID verification.",
+        message="Student registered successfully. Please verify your OTP sent to email.",
         otp_debug=otp_code,
     )
+
 
 
 async def signup_faculty(data: FacultySignUpRequest) -> AuthResponse:
@@ -169,6 +172,7 @@ async def signup_faculty(data: FacultySignUpRequest) -> AuthResponse:
         .insert({
             "name": data.name,
             "email": data.email,
+            "phone": data.phone,
             "password_hash": pwd_hash,
             "role": "faculty",
             "is_email_verified": False,
@@ -195,6 +199,7 @@ async def signup_faculty(data: FacultySignUpRequest) -> AuthResponse:
             email=user["email"],
             name=user["name"],
             role=user["role"],
+            phone=user.get("phone"),
             is_email_verified=False,
             verification_status="pending",
         ),
@@ -225,6 +230,7 @@ async def signup_worker(data: WorkerSignUpRequest) -> AuthResponse:
         .insert({
             "name": mw_info.full_name,
             "email": data.email,
+            "phone": data.phone,
             "password_hash": pwd_hash,
             "role": "worker",
             "is_email_verified": False,
@@ -250,6 +256,7 @@ async def signup_worker(data: WorkerSignUpRequest) -> AuthResponse:
             email=user["email"],
             name=user["name"],
             role=user["role"],
+            phone=user.get("phone"),
             is_email_verified=False,
             verification_status="pending",
         ),
@@ -291,9 +298,8 @@ async def login_user(data: LoginRequest) -> AuthResponse:
     verification_status = "verified"
     role = user["role"]
     if role == "student":
-        sp_res = admin.table("student_profiles").select("verification_status").eq("user_id", user["id"]).execute()
-        if sp_res.data:
-            verification_status = sp_res.data[0].get("verification_status", "pending")
+        verification_status = "verified"
+
     elif role == "faculty":
         fp_res = admin.table("faculty_profiles").select("verification_status").eq("user_id", user["id"]).execute()
         if fp_res.data:
@@ -313,6 +319,7 @@ async def login_user(data: LoginRequest) -> AuthResponse:
             email=user["email"],
             name=user["name"],
             role=user["role"],
+            phone=user.get("phone"),
             is_email_verified=user["is_email_verified"],
             verification_status=verification_status,
         ),

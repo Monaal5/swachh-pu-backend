@@ -2,6 +2,7 @@
 OTP Service — Handles generation, storage, sending, and verification of 6-digit email OTPs.
 """
 
+import asyncio
 import random
 import smtplib
 from email.mime.text import MIMEText
@@ -30,13 +31,18 @@ def send_otp_email(recipient_email: str, otp_code: str):
     msg["To"] = recipient_email
 
     try:
-        with smtplib.SMTP(settings.smtp_server, settings.smtp_port) as server:
-            server.starttls()
-            server.login(settings.smtp_user, settings.smtp_password)
-            server.sendmail(settings.emails_from or settings.smtp_user, [recipient_email], msg.as_string())
+        if settings.smtp_port == 465:
+            with smtplib.SMTP_SSL(settings.smtp_server, settings.smtp_port, timeout=15) as server:
+                server.login(settings.smtp_user, settings.smtp_password)
+                server.sendmail(settings.smtp_user, [recipient_email], msg.as_string())
+        else:
+            with smtplib.SMTP(settings.smtp_server, settings.smtp_port, timeout=15) as server:
+                server.starttls()
+                server.login(settings.smtp_user, settings.smtp_password)
+                server.sendmail(settings.smtp_user, [recipient_email], msg.as_string())
         print(f"[OTP SERVICE] Email successfully dispatched to {recipient_email}")
     except Exception as e:
-        print(f"[OTP SERVICE] Failed to send email via SMTP: {str(e)}")
+        print(f"[OTP SERVICE] Failed to send email via SMTP ({settings.smtp_server}:{settings.smtp_port}): {str(e)}")
 
 
 async def generate_and_save_otp(user_id: str, email: str = None) -> str:
@@ -68,12 +74,13 @@ async def generate_and_save_otp(user_id: str, email: str = None) -> str:
             recipient_email = user_res.data[0].get("email")
 
     if recipient_email:
-        send_otp_email(recipient_email, otp_code)
+        await asyncio.to_thread(send_otp_email, recipient_email, otp_code)
 
     print(f"==========================================")
     print(f"[OTP SERVICE] Sent OTP {otp_code} to user_id {user_id} ({recipient_email})")
     print(f"==========================================")
     return otp_code
+
 
 
 async def resend_email_otp(email: str) -> dict:

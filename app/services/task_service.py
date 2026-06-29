@@ -205,17 +205,18 @@ async def submit_task_verification(
     admin = get_supabase_admin()
 
     task = await get_task(task_id)
+    if str(task.assigned_to) != worker_profile_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only submit verification for tasks assigned to you",
+        )
+
     if task.status not in ("assigned", "rework_required"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot submit verification for task with status '{task.status}'. Status must be 'assigned' or 'rework_required'.",
         )
 
-    if str(task.assigned_to) != worker_profile_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only submit verification for tasks assigned to you",
-        )
 
     now_iso = datetime.now(timezone.utc).isoformat()
     admin.table("tasks").update({

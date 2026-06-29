@@ -38,7 +38,9 @@ class StudentSignUpRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=6)
     roll_no: str = Field(..., min_length=1)
-    id_card_image: str = Field(..., min_length=1, description="URL or path to uploaded ID card photo")
+    phone: Optional[str] = None
+
+
 
     @field_validator("email", mode="before")
     @classmethod
@@ -59,6 +61,7 @@ class FacultySignUpRequest(BaseModel):
     faculty_id: str = Field(..., min_length=1)
     faculty_type: Literal["teaching", "non_teaching"]
     id_card_image: str = Field(..., min_length=1, description="URL or path to uploaded ID card photo")
+    phone: Optional[str] = None
 
     @field_validator("email", mode="before")
     @classmethod
@@ -80,6 +83,7 @@ class WorkerSignUpRequest(BaseModel):
     password: str = Field(..., min_length=6)
     worker_id: str = Field(..., min_length=1, description="Master Worker ID e.g. EMP101")
     id_card_image: str = Field(..., min_length=1, description="URL or path to uploaded ID card photo")
+    phone: Optional[str] = None
 
     @field_validator("email", mode="before")
     @classmethod
@@ -137,6 +141,7 @@ class AuthUser(BaseModel):
     email: str
     name: str
     role: str
+    phone: Optional[str] = None
     is_email_verified: bool
     verification_status: Optional[str] = None
 
@@ -157,7 +162,8 @@ class PendingUserResponse(BaseModel):
     name: str
     email: str
     role: str
-    id_card_image: str
+    phone: Optional[str] = None
+    id_card_image: Optional[str] = None
     verification_status: str
     created_at: datetime
     details: Optional[dict] = None
