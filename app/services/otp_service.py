@@ -16,10 +16,77 @@ MASTER_TEST_OTP = "123456"  # Static master OTP for testing convenience
 
 import traceback
 from email.utils import formataddr
+import httpx
+
 
 def send_otp_email(recipient_email: str, otp_code: str):
-    """Send OTP code via SMTP if configured."""
+    """Send OTP code via HTTP API (Resend/Brevo) or SMTP if configured."""
     settings = get_settings()
+    subject = "Swachh PU - Your Verification OTP Code"
+    body = (
+        f"Hello,\n\nYour Swachh PU email verification OTP code is: {otp_code}\n\n"
+        f"This code will expire in 15 minutes.\n\n"
+        f"If you did not request this code, please ignore this email."
+    )
+    from_header = settings.emails_from or "Swachh PU <onboarding@resend.dev>"
+
+    # 1. Try Resend HTTP API (Ideal for Render / cloud environments where SMTP ports are blocked)
+    resend_key = settings.resend_api_key.strip() if settings.resend_api_key else ""
+    if resend_key:
+        try:
+            print("[OTP SERVICE] Sending email via Resend HTTP API...")
+            url = "https://api.resend.com/emails"
+            headers = {
+                "Authorization": f"Bearer {resend_key}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "from": settings.emails_from or "Swachh PU <onboarding@resend.dev>",
+                "to": [recipient_email],
+                "subject": subject,
+                "text": body,
+            }
+            resp = httpx.post(url, headers=headers, json=payload, timeout=10)
+            if resp.status_code in (200, 201):
+                print(f"[OTP SERVICE] Email successfully dispatched to {recipient_email} via Resend HTTP API")
+                return
+            else:
+                print(f"[OTP SERVICE] Resend API error ({resp.status_code}): {resp.text}")
+        except Exception as exc:
+            print(f"[OTP SERVICE] Failed to send email via Resend API: {str(exc)}")
+
+    # 2. Try Brevo HTTP API
+    brevo_key = settings.brevo_api_key.strip() if settings.brevo_api_key else ""
+    if brevo_key:
+        try:
+            print("[OTP SERVICE] Sending email via Brevo HTTP API...")
+            url = "https://api.brevo.com/v3/smtp/email"
+            headers = {
+                "api-key": brevo_key,
+                "Content-Type": "application/json",
+            }
+            sender_name = "Swachh PU"
+            sender_addr = settings.smtp_user or "monaalmamen@gmail.com"
+            if "<" in settings.emails_from and ">" in settings.emails_from:
+                sender_name = settings.emails_from.split("<")[0].strip()
+                sender_addr = settings.emails_from.split("<")[1].replace(">", "").strip()
+            
+            payload = {
+                "sender": {"name": sender_name, "email": sender_addr},
+                "to": [{"email": recipient_email}],
+                "subject": subject,
+                "textContent": body,
+            }
+            resp = httpx.post(url, headers=headers, json=payload, timeout=10)
+            if resp.status_code in (200, 201):
+                print(f"[OTP SERVICE] Email successfully dispatched to {recipient_email} via Brevo HTTP API")
+                return
+            else:
+                print(f"[OTP SERVICE] Brevo API error ({resp.status_code}): {resp.text}")
+        except Exception as exc:
+            print(f"[OTP SERVICE] Failed to send email via Brevo API: {str(exc)}")
+
+    # 3. Fallback to SMTP
     smtp_user = settings.smtp_user.strip() if settings.smtp_user else ""
     smtp_password = settings.smtp_password.strip() if settings.smtp_password else ""
     smtp_server = settings.smtp_server.strip() if settings.smtp_server else "smtp.gmail.com"
@@ -29,16 +96,11 @@ def send_otp_email(recipient_email: str, otp_code: str):
         print("[OTP SERVICE] SMTP user/password not configured in environment. Skipping actual email sending.")
         return
 
-    msg = MIMEText(
-        f"Hello,\n\nYour Swachh PU email verification OTP code is: {otp_code}\n\n"
-        f"This code will expire in 15 minutes.\n\n"
-        f"If you did not request this code, please ignore this email."
-    )
-    msg["Subject"] = "Swachh PU - Your Verification OTP Code"
+    msg = MIMEText(body)
+    msg["Subject"] = subject
     msg["From"] = settings.emails_from if settings.emails_from else formataddr(("Swachh PU", smtp_user))
     msg["To"] = recipient_email
 
-    # Try primary configured port, with fallback if connection fails
     ports_to_try = [smtp_port]
     fallback_port = 587 if smtp_port == 465 else 465
     if fallback_port not in ports_to_try:
@@ -62,7 +124,6 @@ def send_otp_email(recipient_email: str, otp_code: str):
             return
         except Exception as e:
             print(f"[OTP SERVICE] Failed to send email via SMTP ({smtp_server}:{port}): {str(e)}")
-            print(traceback.format_exc())
 
 
 async def generate_and_save_otp(user_id: str, email: str = None) -> str:
