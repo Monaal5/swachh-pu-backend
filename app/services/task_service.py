@@ -11,6 +11,8 @@ from app.models.task import TaskCreateRequest, TaskResponse, TaskStatusResponse
 from app.utils.supabase_client import get_supabase_admin
 
 
+from datetime import datetime, timezone
+
 def _row_to_response(row: dict) -> TaskResponse:
     """Convert a raw DB row to TaskResponse."""
     return TaskResponse(
@@ -25,15 +27,20 @@ def _row_to_response(row: dict) -> TaskResponse:
         status=row["status"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        due_date=row.get("due_date"),
+        completion_photo_url=row.get("completion_photo_url"),
+        completion_submitted_at=row.get("completion_submitted_at"),
+        rejection_reason=row.get("rejection_reason"),
         creator_name=row.get("creator_name"),
         assignee_name=row.get("assignee_name"),
     )
 
 
 async def create_task(data: TaskCreateRequest, profile_id: str) -> TaskResponse:
-    """Create a new task (status defaults to 'pending')."""
+    """Create a new task (status defaults to 'pending' unless assigned_to is specified)."""
     admin = get_supabase_admin()
 
+    initial_status = "assigned" if data.assigned_to else "pending"
     task_data = {
         "photo_url": data.photo_url,
         "latitude": data.latitude,
@@ -41,8 +48,13 @@ async def create_task(data: TaskCreateRequest, profile_id: str) -> TaskResponse:
         "audio_url": data.audio_url,
         "description": data.description,
         "profile_id": profile_id,
-        "status": "pending",
+        "status": initial_status,
     }
+    if data.due_date:
+        task_data["due_date"] = data.due_date.isoformat()
+    if data.assigned_to:
+        task_data["assigned_to"] = str(data.assigned_to)
+
 
     try:
         result = admin.table("tasks").insert(task_data).execute()
@@ -136,16 +148,16 @@ async def get_my_tasks(profile_id: str) -> list[TaskResponse]:
     return [_row_to_response(row) for row in result.data]
 
 
-async def assign_task(task_id: str, worker_profile_id: str) -> TaskStatusResponse:
+async def assign_task(task_id: str, worker_profile_id: str, due_date: Optional[datetime] = None) -> TaskStatusResponse:
     """Assign a pending task to a worker (admin action)."""
     admin = get_supabase_admin()
 
     # Verify task exists and is in valid state
     task = await get_task(task_id)
-    if task.status not in ("pending",):
+    if task.status not in ("pending", "rework_required", "assigned"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot assign a task with status '{task.status}'. Only 'pending' tasks can be assigned.",
+            detail=f"Cannot assign a task with status '{task.status}'.",
         )
 
     # Verify worker exists and is actually a worker
@@ -155,11 +167,15 @@ async def assign_task(task_id: str, worker_profile_id: str) -> TaskStatusRespons
     if worker_result.data[0]["role"] != "worker":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected profile is not a worker")
 
-    # Update task
-    admin.table("tasks").update({
+    update_payload = {
         "assigned_to": worker_profile_id,
         "status": "assigned",
-    }).eq("id", task_id).execute()
+    }
+    if due_date:
+        update_payload["due_date"] = due_date.isoformat()
+
+    # Update task
+    admin.table("tasks").update(update_payload).eq("id", task_id).execute()
 
     return TaskStatusResponse(task_id=task_id, new_status="assigned", message="Task assigned to worker")
 
@@ -180,18 +196,95 @@ async def reject_task(task_id: str) -> TaskStatusResponse:
     return TaskStatusResponse(task_id=task_id, new_status="rejected", message="Task rejected")
 
 
-async def complete_task(task_id: str, worker_profile_id: str) -> TaskStatusResponse:
-    """Mark an assigned task as completed (worker action)."""
+async def submit_task_verification(
+    task_id: str,
+    worker_profile_id: str,
+    completion_photo_url: str,
+) -> TaskStatusResponse:
+    """Submit proof photo for task verification (worker action)."""
     admin = get_supabase_admin()
 
     task = await get_task(task_id)
-    if task.status != "assigned":
+    if task.status not in ("assigned", "rework_required"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot complete a task with status '{task.status}'. Only 'assigned' tasks can be completed.",
+            detail=f"Cannot submit verification for task with status '{task.status}'. Status must be 'assigned' or 'rework_required'.",
         )
 
-    # Ensure the worker completing is the one assigned
+    if str(task.assigned_to) != worker_profile_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only submit verification for tasks assigned to you",
+        )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    admin.table("tasks").update({
+        "status": "pending_verification",
+        "completion_photo_url": completion_photo_url,
+        "completion_submitted_at": now_iso,
+    }).eq("id", task_id).execute()
+
+    return TaskStatusResponse(
+        task_id=task_id,
+        new_status="pending_verification",
+        message="Task completion photo submitted for admin verification",
+    )
+
+
+async def approve_task_verification(task_id: str) -> TaskStatusResponse:
+    """Approve completed task photo proof (admin action)."""
+    admin = get_supabase_admin()
+
+    task = await get_task(task_id)
+    if task.status != "pending_verification":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot approve task with status '{task.status}'. Only 'pending_verification' tasks can be approved.",
+        )
+
+    admin.table("tasks").update({"status": "completed"}).eq("id", task_id).execute()
+
+    return TaskStatusResponse(
+        task_id=task_id,
+        new_status="completed",
+        message="Task completion approved and marked as completed",
+    )
+
+
+async def reject_task_verification(task_id: str, rejection_reason: str) -> TaskStatusResponse:
+    """Reject completed task photo proof and request rework (admin action)."""
+    admin = get_supabase_admin()
+
+    task = await get_task(task_id)
+    if task.status != "pending_verification":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot reject verification for task with status '{task.status}'. Only 'pending_verification' tasks can be rejected.",
+        )
+
+    admin.table("tasks").update({
+        "status": "rework_required",
+        "rejection_reason": rejection_reason,
+    }).eq("id", task_id).execute()
+
+    return TaskStatusResponse(
+        task_id=task_id,
+        new_status="rework_required",
+        message=f"Task verification rejected and sent back to worker for rework: {rejection_reason}",
+    )
+
+
+async def complete_task(task_id: str, worker_profile_id: str) -> TaskStatusResponse:
+    """Legacy complete endpoint alias for backward compatibility."""
+    admin = get_supabase_admin()
+
+    task = await get_task(task_id)
+    if task.status not in ("assigned", "pending_verification"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot complete a task with status '{task.status}'.",
+        )
+
     if str(task.assigned_to) != worker_profile_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -201,3 +294,4 @@ async def complete_task(task_id: str, worker_profile_id: str) -> TaskStatusRespo
     admin.table("tasks").update({"status": "completed"}).eq("id", task_id).execute()
 
     return TaskStatusResponse(task_id=task_id, new_status="completed", message="Task completed")
+
