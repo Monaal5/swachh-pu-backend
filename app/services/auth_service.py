@@ -1,168 +1,327 @@
 """
-Auth service — wraps Supabase Auth calls for signup and login.
+Auth service — Implements multi-role registration flows (Student, Faculty, Worker)
+and login rule verification based on system architecture diagram.
 """
 
+import hashlib
+import os
+import secrets
+from uuid import UUID
 from fastapi import HTTPException, status
 
-from app.models.auth import SignUpRequest, LoginRequest, AuthResponse, AuthUser
-from app.utils.supabase_client import get_supabase_client, get_supabase_admin
+from app.models.auth import (
+    StudentSignUpRequest,
+    FacultySignUpRequest,
+    WorkerSignUpRequest,
+    LoginRequest,
+    AuthResponse,
+    AuthUser,
+    WorkerMasterVerifyResponse,
+)
+from app.services.otp_service import generate_and_save_otp
+from app.utils.supabase_client import get_supabase_admin
 
 
-async def signup_user(data: SignUpRequest) -> AuthResponse:
-    """
-    1. Create user in Supabase Auth
-    2. Insert into `profiles` table
-    3. Insert into `student_profiles` or `worker_profiles` based on role
-    4. Return tokens + user info
-    """
-    supabase = get_supabase_client()
+# ── Password Hashing Helpers ─────────────────────────────────
+
+def hash_password(password: str) -> str:
+    """Hash password using PBKDF2 with HMAC-SHA256."""
+    salt = os.urandom(16).hex()
+    pwd_hash = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000
+    ).hex()
+    return f"{salt}${pwd_hash}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    """Verify stored password hash."""
+    try:
+        salt, pwd_hash = stored_hash.split("$")
+        recomputed = hashlib.pbkdf2_hmac(
+            "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000
+        ).hex()
+        return secrets.compare_digest(pwd_hash, recomputed)
+    except Exception:
+        return False
+
+
+def generate_tokens(user_id: str, role: str) -> tuple[str, str]:
+    """Generate mock JWT / session access & refresh tokens."""
+    access_token = f"swachh_access_{user_id}_{secrets.token_hex(16)}"
+    refresh_token = f"swachh_refresh_{user_id}_{secrets.token_hex(16)}"
+    return access_token, refresh_token
+
+
+# ── Master Worker Verification ───────────────────────────────
+
+async def verify_worker_master(worker_id: str) -> WorkerMasterVerifyResponse:
+    """Verify if Worker ID exists in MASTER_WORKERS table."""
+    admin = get_supabase_admin()
+    res = (
+        admin.table("master_workers")
+        .select("*")
+        .eq("worker_id", worker_id.strip())
+        .eq("status", "active")
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invalid Worker ID or worker is inactive in master system.",
+        )
+    mw = res.data[0]
+    return WorkerMasterVerifyResponse(
+        master_worker_id=mw["id"],
+        worker_id=mw["worker_id"],
+        full_name=mw["full_name"],
+        department=mw["department"],
+        designation=mw["designation"],
+        status=mw["status"],
+    )
+
+
+# ── Multi-Role Registration Flows ─────────────────────────────
+
+async def signup_student(data: StudentSignUpRequest) -> AuthResponse:
+    """1. Student Registration Flow."""
     admin = get_supabase_admin()
 
-    # ── Step 1: Supabase Auth sign-up ──
-    try:
-        auth_response = supabase.auth.sign_up({
+    # Check email uniqueness
+    existing_user = admin.table("users").select("*").eq("email", data.email).execute()
+    if existing_user.data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email is already registered.",
+        )
+
+    # Check roll_no uniqueness
+    existing_roll = admin.table("student_profiles").select("*").eq("roll_no", data.roll_no).execute()
+    if existing_roll.data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Roll number is already registered.",
+        )
+
+    # Insert user
+    pwd_hash = hash_password(data.password)
+    user_res = (
+        admin.table("users")
+        .insert({
+            "name": data.name,
             "email": data.email,
-            "password": data.password,
+            "password_hash": pwd_hash,
+            "role": "student",
+            "is_email_verified": False,
         })
-    except Exception as exc:
+        .execute()
+    )
+    user = user_res.data[0]
+
+    # Insert student profile
+    admin.table("student_profiles").insert({
+        "user_id": user["id"],
+        "roll_no": data.roll_no,
+    }).execute()
+
+    # Generate OTP
+    otp_code = await generate_and_save_otp(user["id"])
+
+    return AuthResponse(
+        user=AuthUser(
+            id=user["id"],
+            email=user["email"],
+            name=user["name"],
+            role=user["role"],
+            is_email_verified=False,
+        ),
+        message="Student registered successfully. Please verify your OTP sent to email.",
+        otp_debug=otp_code,
+    )
+
+
+async def signup_faculty(data: FacultySignUpRequest) -> AuthResponse:
+    """2. Faculty Registration Flow."""
+    admin = get_supabase_admin()
+
+    # Check email uniqueness
+    existing_user = admin.table("users").select("*").eq("email", data.email).execute()
+    if existing_user.data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Signup failed: {str(exc)}",
+            detail="Email is already registered.",
         )
 
-    auth_user = auth_response.user
-    session = auth_response.session
-
-    if auth_user is None:
+    # Check faculty_id uniqueness
+    existing_fac = admin.table("faculty_profiles").select("*").eq("faculty_id", data.faculty_id).execute()
+    if existing_fac.data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Signup failed — user was not created. Check if the email is already registered.",
+            detail="Faculty ID is already registered.",
         )
 
-    # ── Step 2: Insert into profiles ──
-    profile_data = {
-        "user_id": str(auth_user.id),
-        "name": data.name,
-        "role": data.role,
-        "phone": data.phone,
-    }
+    # Insert user
+    pwd_hash = hash_password(data.password)
+    user_res = (
+        admin.table("users")
+        .insert({
+            "name": data.name,
+            "email": data.email,
+            "password_hash": pwd_hash,
+            "role": "faculty",
+            "is_email_verified": False,
+        })
+        .execute()
+    )
+    user = user_res.data[0]
 
-    try:
-        profile_result = (
-            admin.table("profiles")
-            .insert(profile_data)
-            .execute()
-        )
-        profile = profile_result.data[0]
-    except Exception as exc:
-        # Rollback: delete the auth user if profile insert fails
-        try:
-            admin.auth.admin.delete_user(str(auth_user.id))
-        except Exception:
-            pass
+    # Insert faculty profile
+    admin.table("faculty_profiles").insert({
+        "user_id": user["id"],
+        "faculty_id": data.faculty_id,
+        "faculty_type": data.faculty_type,
+    }).execute()
+
+    # Generate OTP
+    otp_code = await generate_and_save_otp(user["id"])
+
+    return AuthResponse(
+        user=AuthUser(
+            id=user["id"],
+            email=user["email"],
+            name=user["name"],
+            role=user["role"],
+            is_email_verified=False,
+        ),
+        message="Faculty registered successfully. Please verify your OTP sent to email.",
+        otp_debug=otp_code,
+    )
+
+
+async def signup_worker(data: WorkerSignUpRequest) -> AuthResponse:
+    """3. Worker Registration Flow."""
+    admin = get_supabase_admin()
+
+    # 1. Verify Master Worker ID
+    mw_info = await verify_worker_master(data.worker_id)
+
+    # Check email uniqueness
+    existing_user = admin.table("users").select("*").eq("email", data.email).execute()
+    if existing_user.data:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create profile: {str(exc)}",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email is already registered.",
         )
 
-    # ── Step 3: Insert role-specific profile ──
-    try:
-        if data.role == "student":
-            if not data.roll_no:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="roll_no is required for student signup",
-                )
-            admin.table("student_profiles").insert({
-                "profile_id": profile["id"],
-                "roll_no": data.roll_no,
-                "address": data.address,
-                "hostel": data.hostel,
-            }).execute()
+    # Insert user with full_name from master records
+    pwd_hash = hash_password(data.password)
+    user_res = (
+        admin.table("users")
+        .insert({
+            "name": mw_info.full_name,
+            "email": data.email,
+            "password_hash": pwd_hash,
+            "role": "worker",
+            "is_email_verified": False,
+        })
+        .execute()
+    )
+    user = user_res.data[0]
 
-        elif data.role == "worker":
-            admin.table("worker_profiles").insert({
-                "profile_id": profile["id"],
-                "employee_id": data.employee_id,
-                "zone": data.zone,
-            }).execute()
+    # Insert worker profile with pending status
+    admin.table("worker_profiles").insert({
+        "user_id": user["id"],
+        "master_worker_id": str(mw_info.master_worker_id),
+        "id_card_image": data.id_card_image,
+        "verification_status": "pending",
+    }).execute()
 
-        # admin role has no extra profile table
+    # Generate OTP
+    otp_code = await generate_and_save_otp(user["id"])
 
-    except HTTPException:
-        raise
-    except Exception as exc:
+    return AuthResponse(
+        user=AuthUser(
+            id=user["id"],
+            email=user["email"],
+            name=user["name"],
+            role=user["role"],
+            is_email_verified=False,
+            verification_status="pending",
+        ),
+        message="Your account is under verification. Please wait for admin approval.",
+        otp_debug=otp_code,
+    )
+
+
+# ── Login & Rule Enforcement ─────────────────────────────────
+
+async def login_user(data: LoginRequest) -> AuthResponse:
+    """Login with strict verification checks according to login rules."""
+    admin = get_supabase_admin()
+
+    # Query user
+    user_res = admin.table("users").select("*").eq("email", data.email).execute()
+    if not user_res.data:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create role-specific profile: {str(exc)}",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password.",
+        )
+    user = user_res.data[0]
+
+    # Verify password
+    if not verify_password(data.password, user["password_hash"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password.",
         )
 
-    # ── Step 4: Build response ──
-    access_token = session.access_token if session else ""
-    refresh_token = session.refresh_token if session else ""
+    # ── Rule 1: Student / Faculty / Worker must have is_email_verified == True ──
+    if not user["is_email_verified"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email is not verified. Please verify your OTP first.",
+        )
+
+    # ── Rule 2: Worker must also be verified by Admin ──
+    verification_status = None
+    if user["role"] == "worker":
+        wp_res = admin.table("worker_profiles").select("*").eq("user_id", user["id"]).execute()
+        if not wp_res.data:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Worker profile record missing.",
+            )
+        wp = wp_res.data[0]
+        verification_status = wp["verification_status"]
+
+        if verification_status == "pending":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Your account is under verification. Please wait for admin approval.",
+            )
+        elif verification_status == "rejected":
+            reason = wp.get("rejection_reason") or "ID card verification failed."
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Worker registration rejected by admin. Reason: {reason}",
+            )
+        elif verification_status != "verified":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access allowed only for verified workers.",
+            )
+
+    access_token, refresh_token = generate_tokens(user["id"], user["role"])
 
     return AuthResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         user=AuthUser(
-            id=str(auth_user.id),
-            email=data.email,
-            name=data.name,
-            role=data.role,
-        ),
-        message="Signup successful",
-    )
-
-
-async def login_user(data: LoginRequest) -> AuthResponse:
-    """Authenticate with email + password, return tokens."""
-    supabase = get_supabase_client()
-    admin = get_supabase_admin()
-
-    try:
-        auth_response = supabase.auth.sign_in_with_password({
-            "email": data.email,
-            "password": data.password,
-        })
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Login failed: {str(exc)}",
-        )
-
-    auth_user = auth_response.user
-    session = auth_response.session
-
-    if auth_user is None or session is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-        )
-
-    # Fetch profile
-    profile_result = (
-        admin.table("profiles")
-        .select("*")
-        .eq("user_id", str(auth_user.id))
-        .execute()
-    )
-
-    if not profile_result.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Profile not found",
-        )
-
-    profile = profile_result.data[0]
-
-    return AuthResponse(
-        access_token=session.access_token,
-        refresh_token=session.refresh_token,
-        user=AuthUser(
-            id=str(auth_user.id),
-            email=data.email,
-            name=profile["name"],
-            role=profile["role"],
+            id=user["id"],
+            email=user["email"],
+            name=user["name"],
+            role=user["role"],
+            is_email_verified=user["is_email_verified"],
+            verification_status=verification_status,
         ),
         message="Login successful",
     )

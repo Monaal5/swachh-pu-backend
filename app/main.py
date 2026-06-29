@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import auth, profiles, tasks, upload
+from app.routers import auth, admin, profiles, tasks, upload
 
 settings = get_settings()
 
@@ -19,10 +19,10 @@ app = FastAPI(
     title=settings.app_title,
     description=(
         "Backend API for Swachh PU Abhiyaan — campus cleanliness task management.\n\n"
-        "**Roles**: student (create tasks), worker (complete tasks), admin (manage tasks)\n\n"
-        "**Stack**: FastAPI + Supabase (Auth, Database, Storage)"
+        "**Roles**: student, faculty, worker, admin\n\n"
+        "**Features**: Multi-role signup, Email OTP verification, Master Worker verification, Admin verification workflow."
     ),
-    version="1.0.0",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -31,7 +31,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TODO: restrict to actual frontend domain in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -40,6 +40,7 @@ app.add_middleware(
 # ── Register Routers ─────────────────────────────────────────
 
 app.include_router(auth.router)
+app.include_router(admin.router)
 app.include_router(profiles.router)
 app.include_router(profiles.workers_router)
 app.include_router(tasks.router)
@@ -54,7 +55,7 @@ async def root():
     return {
         "status": "ok",
         "app": settings.app_title,
-        "version": "1.0.0",
+        "version": "2.0.0",
     }
 
 

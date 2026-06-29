@@ -1,123 +1,158 @@
 import re
-from typing import Optional
-
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from typing import Optional, Literal
+from uuid import UUID
+from datetime import datetime
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 
 
+# ── Common Validators ────────────────────────────────────────
+
+def validate_email_str(v: str) -> str:
+    if not isinstance(v, str):
+        raise ValueError("Email must be a string.")
+    v_stripped = v.strip()
+    if not v_stripped:
+        raise ValueError("Email cannot be empty.")
+    if not EMAIL_REGEX.match(v_stripped):
+        raise ValueError("Invalid email format.")
+    return v_stripped
+
+
+def validate_password_str(v: str) -> str:
+    if not isinstance(v, str):
+        raise ValueError("Password must be a string.")
+    if not v or not v.strip():
+        raise ValueError("Password cannot be empty.")
+    if len(v) < 6:
+        raise ValueError("Password must be at least 6 characters long.")
+    return v
+
+
 # ── Request Schemas ──────────────────────────────────────────
 
-class SignUpRequest(BaseModel):
-    """Body for POST /auth/signup."""
-
-    email: EmailStr
-    password: str = Field(..., min_length=6, description="Minimum 6 characters")
+class StudentSignUpRequest(BaseModel):
+    """Body for POST /auth/signup/student."""
     name: str = Field(..., min_length=1)
-    role: str = Field(..., pattern="^(student|worker|admin)$")
-    phone: Optional[str] = None
-
-    # Student-specific (required when role == student)
-    roll_no: Optional[str] = None
-    address: Optional[str] = None
-    hostel: Optional[str] = None
-
-    # Worker-specific (required when role == worker)
-    employee_id: Optional[str] = None
-    zone: Optional[str] = None
-
-    @field_validator("password", mode="before")
-    @classmethod
-    def validate_password_not_empty(cls, v: str) -> str:
-        if not isinstance(v, str):
-            raise ValueError("Password must be a string.")
-        if not v or not v.strip():
-            raise ValueError("Password cannot be empty or contain only whitespace.")
-        if len(v) < 6:
-            raise ValueError("Password must be at least 6 characters long.")
-        return v
+    email: EmailStr
+    password: str = Field(..., min_length=6)
+    roll_no: str = Field(..., min_length=1)
 
     @field_validator("email", mode="before")
     @classmethod
-    def validate_email_format(cls, v: str) -> str:
-        if not isinstance(v, str):
-            raise ValueError("Email must be a string.")
-        v_stripped = v.strip()
-        if not v_stripped:
-            raise ValueError("Email cannot be empty.")
-        if not EMAIL_REGEX.match(v_stripped):
-            raise ValueError("Invalid email format. Must match standard email format (e.g. user@example.com).")
-        return v_stripped
+    def val_email(cls, v: str) -> str:
+        return validate_email_str(v)
 
-    @field_validator("name", mode="before")
+    @field_validator("password", mode="before")
     @classmethod
-    def validate_name_not_empty(cls, v: str) -> str:
-        if not isinstance(v, str):
-            raise ValueError("Name must be a string.")
-        if not v or not v.strip():
-            raise ValueError("Name cannot be empty or contain only whitespace.")
-        return v.strip()
+    def val_password(cls, v: str) -> str:
+        return validate_password_str(v)
 
-    @field_validator("role", mode="before")
+
+class FacultySignUpRequest(BaseModel):
+    """Body for POST /auth/signup/faculty."""
+    name: str = Field(..., min_length=1)
+    email: EmailStr
+    password: str = Field(..., min_length=6)
+    faculty_id: str = Field(..., min_length=1)
+    faculty_type: Literal["teaching", "non_teaching"]
+
+    @field_validator("email", mode="before")
     @classmethod
-    def validate_role(cls, v: str) -> str:
-        if not isinstance(v, str):
-            raise ValueError("Role must be a string.")
-        if not v or not v.strip():
-            raise ValueError("Role cannot be empty.")
-        v_clean = v.strip().lower()
-        if v_clean not in ["student", "worker", "admin"]:
-            raise ValueError("Role must be one of: student, worker, admin.")
-        return v_clean
+    def val_email(cls, v: str) -> str:
+        clean_email = validate_email_str(v)
+        if not clean_email.lower().endswith("pu.ac.in"):
+            raise ValueError("Faculty email must belong to the official university domain (pu.ac.in).")
+        return clean_email
 
-    @field_validator("phone")
+    @field_validator("password", mode="before")
     @classmethod
-    def validate_phone_format(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None:
-            v_stripped = v.strip()
-            if not v_stripped:
-                return None
-            # Standard E.164 or 10-digit number pattern
-            if not re.match(r"^\+?[1-9]\d{1,14}$|^[0-9]{10}$", v_stripped):
-                raise ValueError("Phone number must be a valid format (e.g. a 10-digit number).")
-            return v_stripped
-        return v
+    def val_password(cls, v: str) -> str:
+        return validate_password_str(v)
 
-    @model_validator(mode="after")
-    def validate_role_specific_fields(self) -> "SignUpRequest":
-        if self.role == "student":
-            if not self.roll_no or not self.roll_no.strip():
-                raise ValueError("roll_no is required for student role")
-        elif self.role == "worker":
-            if not self.employee_id or not self.employee_id.strip():
-                raise ValueError("employee_id is required for worker role")
-            if not self.zone or not self.zone.strip():
-                raise ValueError("zone is required for worker role")
-        return self
+
+class WorkerSignUpRequest(BaseModel):
+    """Body for POST /auth/signup/worker."""
+    email: EmailStr
+    password: str = Field(..., min_length=6)
+    worker_id: str = Field(..., min_length=1, description="Master Worker ID e.g. EMP101")
+    id_card_image: str = Field(..., min_length=1, description="URL or path to uploaded ID card photo")
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def val_email(cls, v: str) -> str:
+        return validate_email_str(v)
+
+    @field_validator("password", mode="before")
+    @classmethod
+    def val_password(cls, v: str) -> str:
+        return validate_password_str(v)
+
+
+class VerifyOTPRequest(BaseModel):
+    """Body for POST /auth/verify-otp."""
+    email: EmailStr
+    otp: str = Field(..., min_length=6, max_length=6, description="6-digit OTP code")
+
+
+class ResendOTPRequest(BaseModel):
+    """Body for POST /auth/resend-otp."""
+    email: EmailStr
 
 
 class LoginRequest(BaseModel):
     """Body for POST /auth/login."""
-
     email: EmailStr
     password: str
 
 
+class AdminWorkerDecisionRequest(BaseModel):
+    """Body for POST /admin/workers/{worker_profile_id}/verify."""
+    action: Literal["approve", "reject"]
+    rejection_reason: Optional[str] = None
+
+
 # ── Response Schemas ─────────────────────────────────────────
 
-class AuthUser(BaseModel):
-    """Minimal user info returned after auth."""
+class WorkerMasterVerifyResponse(BaseModel):
+    """Returned when checking master worker table."""
+    master_worker_id: UUID
+    worker_id: str
+    full_name: str
+    department: str
+    designation: str
+    status: str
 
-    id: str
+
+class AuthUser(BaseModel):
+    """User info returned after auth."""
+    id: UUID
     email: str
     name: str
     role: str
+    is_email_verified: bool
+    verification_status: Optional[str] = None
 
 
 class AuthResponse(BaseModel):
-    """Returned on successful login / signup."""
-
-    access_token: str
-    refresh_token: str
-    user: AuthUser
+    """Returned on successful login / signup / otp verification."""
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    user: Optional[AuthUser] = None
     message: str = "success"
+    otp_debug: Optional[str] = None  # Returned for testing/dev environment convenience
+
+
+class PendingWorkerResponse(BaseModel):
+    """Worker profile application pending admin review."""
+    worker_profile_id: UUID
+    user_id: UUID
+    name: str
+    email: str
+    worker_id: str
+    department: str
+    designation: str
+    id_card_image: str
+    verification_status: str
+    created_at: datetime
