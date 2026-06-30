@@ -187,7 +187,7 @@ async def signup_faculty(data: FacultySignUpRequest) -> AuthResponse:
         "faculty_id": data.faculty_id,
         "faculty_type": data.faculty_type,
         "id_card_image": data.id_card_image,
-        "verification_status": "pending",
+        "verification_status": "verified",
     }).execute()
 
     # Generate OTP
@@ -201,9 +201,9 @@ async def signup_faculty(data: FacultySignUpRequest) -> AuthResponse:
             role=user["role"],
             phone=user.get("phone"),
             is_email_verified=False,
-            verification_status="pending",
+            verification_status="verified",
         ),
-        message="Faculty registered successfully. Please verify your OTP sent to email and await ID verification.",
+        message="Faculty registered successfully. Please verify your OTP sent to email.",
         otp_debug=otp_code,
     )
 
@@ -296,18 +296,6 @@ async def login_user(data: LoginRequest) -> AuthResponse:
 
     # ── Rule 2: Fetch verification_status for role profile ──
     verification_status = "verified"
-    role = user["role"]
-    if role == "student":
-        verification_status = "verified"
-
-    elif role == "faculty":
-        fp_res = admin.table("faculty_profiles").select("verification_status").eq("user_id", user["id"]).execute()
-        if fp_res.data:
-            verification_status = fp_res.data[0].get("verification_status", "pending")
-    elif role == "worker":
-        wp_res = admin.table("worker_profiles").select("verification_status").eq("user_id", user["id"]).execute()
-        if wp_res.data:
-            verification_status = wp_res.data[0].get("verification_status", "pending")
 
     access_token, refresh_token = generate_tokens(user["id"], user["role"])
 

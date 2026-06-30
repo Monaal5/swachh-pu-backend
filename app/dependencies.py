@@ -52,20 +52,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
 async def check_user_verification(user: dict) -> str:
     """Helper to check verification_status for user's role profile."""
-    role = user.get("role")
-    if role in ("admin", "student"):
-        return "verified"
-
-    admin_client = get_supabase_admin()
-    if role == "faculty":
-        fp_res = admin_client.table("faculty_profiles").select("verification_status").eq("user_id", user["id"]).execute()
-        if fp_res.data:
-            return fp_res.data[0].get("verification_status", "pending")
-
-    elif role == "worker":
-        wp_res = admin_client.table("worker_profiles").select("verification_status").eq("user_id", user["id"]).execute()
-        if wp_res.data:
-            return wp_res.data[0].get("verification_status", "pending")
     return "verified"
 
 

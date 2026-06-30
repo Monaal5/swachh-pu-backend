@@ -60,7 +60,7 @@ class FacultySignUpRequest(BaseModel):
     password: str = Field(..., min_length=6)
     faculty_id: str = Field(..., min_length=1)
     faculty_type: Literal["teaching", "non_teaching"]
-    id_card_image: str = Field(..., min_length=1, description="URL or path to uploaded ID card photo")
+    id_card_image: Optional[str] = None
     phone: Optional[str] = None
 
     @field_validator("email", mode="before")
