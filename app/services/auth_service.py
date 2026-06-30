@@ -239,12 +239,12 @@ async def signup_worker(data: WorkerSignUpRequest) -> AuthResponse:
     )
     user = user_res.data[0]
 
-    # Insert worker profile with pending status
+    # Insert worker profile with verified status automatically
     admin.table("worker_profiles").insert({
         "user_id": user["id"],
         "master_worker_id": str(mw_info.master_worker_id),
         "id_card_image": data.id_card_image,
-        "verification_status": "pending",
+        "verification_status": "verified",
     }).execute()
 
     # Generate OTP
@@ -258,9 +258,9 @@ async def signup_worker(data: WorkerSignUpRequest) -> AuthResponse:
             role=user["role"],
             phone=user.get("phone"),
             is_email_verified=False,
-            verification_status="pending",
+            verification_status="verified",
         ),
-        message="Your account is under verification. Please wait for admin approval.",
+        message="Worker registered successfully. Please verify your OTP sent to email.",
         otp_debug=otp_code,
     )
 

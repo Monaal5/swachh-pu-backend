@@ -82,7 +82,7 @@ class WorkerSignUpRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=6)
     worker_id: str = Field(..., min_length=1, description="Master Worker ID e.g. EMP101")
-    id_card_image: str = Field(..., min_length=1, description="URL or path to uploaded ID card photo")
+    id_card_image: Optional[str] = None
     phone: Optional[str] = None
 
     @field_validator("email", mode="before")
