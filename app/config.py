@@ -26,10 +26,6 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     emails_from: str = ""
 
-    # Email API Keys (for cloud deployment like Render where SMTP ports are blocked)
-    resend_api_key: str = ""
-    brevo_api_key: str = ""
-
     # Server
     app_title: str = "Swachh PU Backend"
     debug: bool = False
@@ -38,6 +34,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
 
