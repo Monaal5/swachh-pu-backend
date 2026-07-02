@@ -118,6 +118,15 @@ async def signup_student(data: StudentSignUpRequest) -> AuthResponse:
     )
     user = user_res.data[0]
 
+    # Insert profile in public.profiles table
+    admin.table("profiles").insert({
+        "id": user["id"],
+        "user_id": user["id"],
+        "name": user["name"],
+        "role": user["role"],
+        "phone": user.get("phone"),
+    }).execute()
+
     # Insert student profile (students are automatically verified upon registration)
     admin.table("student_profiles").insert({
         "user_id": user["id"],
@@ -181,6 +190,15 @@ async def signup_faculty(data: FacultySignUpRequest) -> AuthResponse:
     )
     user = user_res.data[0]
 
+    # Insert profile in public.profiles table
+    admin.table("profiles").insert({
+        "id": user["id"],
+        "user_id": user["id"],
+        "name": user["name"],
+        "role": user["role"],
+        "phone": user.get("phone"),
+    }).execute()
+
     # Insert faculty profile
     admin.table("faculty_profiles").insert({
         "user_id": user["id"],
@@ -239,6 +257,15 @@ async def signup_worker(data: WorkerSignUpRequest) -> AuthResponse:
     )
     user = user_res.data[0]
 
+    # Insert profile in public.profiles table
+    admin.table("profiles").insert({
+        "id": user["id"],
+        "user_id": user["id"],
+        "name": user["name"],
+        "role": user["role"],
+        "phone": user.get("phone"),
+    }).execute()
+
     # Insert worker profile with verified status automatically
     admin.table("worker_profiles").insert({
         "user_id": user["id"],
@@ -296,6 +323,15 @@ async def login_user(data: LoginRequest) -> AuthResponse:
 
     # ── Rule 2: Fetch verification_status for role profile ──
     verification_status = "verified"
+    role = user["role"]
+    if role == "faculty":
+        fp = admin.table("faculty_profiles").select("verification_status").eq("user_id", user["id"]).execute()
+        if fp.data:
+            verification_status = fp.data[0].get("verification_status", "pending")
+    elif role == "worker":
+        wp = admin.table("worker_profiles").select("verification_status").eq("user_id", user["id"]).execute()
+        if wp.data:
+            verification_status = wp.data[0].get("verification_status", "pending")
 
     access_token, refresh_token = generate_tokens(user["id"], user["role"])
 

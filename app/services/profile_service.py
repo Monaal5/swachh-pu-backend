@@ -148,7 +148,7 @@ async def list_workers() -> list[ProfileResponse]:
             else:
                 worker = worker_raw
 
-            profiles.append(_build_profile_response(p, None, worker))
+            profiles.append(_build_profile_response(p, None, None, worker))
         except Exception:
             pass
 

@@ -42,10 +42,10 @@ def test_user_verification_dependency():
     print("--- Testing check_user_verification dependency ---")
     
     # 3. Test that check_user_verification returns "verified" for faculty and worker
-    faculty_user = {"id": "some-uuid", "role": "faculty"}
-    worker_user = {"id": "some-uuid", "role": "worker"}
-    student_user = {"id": "some-uuid", "role": "student"}
-    admin_user = {"id": "some-uuid", "role": "admin"}
+    faculty_user = {"id": "00000000-0000-0000-0000-000000000000", "role": "faculty"}
+    worker_user = {"id": "00000000-0000-0000-0000-000000000000", "role": "worker"}
+    student_user = {"id": "00000000-0000-0000-0000-000000000000", "role": "student"}
+    admin_user = {"id": "00000000-0000-0000-0000-000000000000", "role": "admin"}
     
     import asyncio
     
