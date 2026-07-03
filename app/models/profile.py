@@ -37,6 +37,11 @@ class WorkerProfileDetail(BaseModel):
     zone: Optional[str] = None
     id_card_image: Optional[str] = None
     verification_status: Optional[str] = "pending"
+    address: Optional[str] = None
+    date_of_joining: Optional[str] = None
+    department: Optional[str] = None
+    status: Optional[str] = None
+    designation: Optional[str] = None
 
 
 # ── Response Schemas ─────────────────────────────────────────

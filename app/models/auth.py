@@ -109,7 +109,7 @@ class ResendOTPRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     """Body for POST /auth/login."""
-    email: EmailStr
+    email: str
     password: str
 
 

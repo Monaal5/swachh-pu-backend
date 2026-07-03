@@ -39,8 +39,12 @@ async def verify_worker_master(worker_id: str):
 
 @router.post("/signup/worker", response_model=AuthResponse, status_code=201)
 async def signup_worker(data: WorkerSignUpRequest):
-    """Register a new worker account (subject to admin approval)."""
-    return await auth_service.signup_worker(data)
+    """Register a new worker account (disabled — workers login directly)."""
+    from fastapi import HTTPException
+    raise HTTPException(
+        status_code=400,
+        detail="Worker registration is disabled. Workers must login directly using their master credentials."
+    )
 
 
 @router.post("/verify-otp")

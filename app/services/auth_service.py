@@ -298,7 +298,74 @@ async def login_user(data: LoginRequest) -> AuthResponse:
     """Login with email + password verification."""
     admin = get_supabase_admin()
 
-    # Query user
+    # 1. Check if the login input is a worker username from the master dataset
+    mw_res = admin.table("master_workers").select("*").eq("username", data.email.strip()).eq("status", "active").execute()
+    if mw_res.data:
+        mw = mw_res.data[0]
+        # Validate password (plain text check for pre-allocated worker master records)
+        if data.password == mw.get("password"):
+            # Check if this worker already has a registered user account
+            wp_res = admin.table("worker_profiles").select("user_id").eq("master_worker_id", mw["id"]).execute()
+            worker_user = None
+            if wp_res.data:
+                user_id = wp_res.data[0]["user_id"]
+                user_res = admin.table("users").select("*").eq("id", user_id).execute()
+                if user_res.data:
+                    worker_user = user_res.data[0]
+            
+            # If not yet registered, register the worker on-demand automatically
+            if not worker_user:
+                email = f"{mw['username']}@worker.swachh.pu"
+                pwd_hash = hash_password(data.password)
+                u_insert = admin.table("users").insert({
+                    "name": mw["full_name"],
+                    "email": email,
+                    "phone": mw.get("phone"),
+                    "password_hash": pwd_hash,
+                    "role": "worker",
+                    "is_email_verified": True
+                }).execute()
+                worker_user = u_insert.data[0]
+                
+                # Create profile record
+                admin.table("profiles").insert({
+                    "id": worker_user["id"],
+                    "user_id": worker_user["id"],
+                    "name": worker_user["name"],
+                    "role": "worker",
+                    "phone": worker_user.get("phone")
+                }).execute()
+                
+                # Create worker profile linked to master record
+                admin.table("worker_profiles").insert({
+                    "user_id": worker_user["id"],
+                    "master_worker_id": mw["id"],
+                    "verification_status": "verified"
+                }).execute()
+                
+            # Log in and generate tokens
+            access_token, refresh_token = generate_tokens(worker_user["id"], "worker")
+            return AuthResponse(
+                access_token=access_token,
+                refresh_token=refresh_token,
+                user=AuthUser(
+                    id=worker_user["id"],
+                    email=worker_user["email"],
+                    name=worker_user["name"],
+                    role="worker",
+                    phone=worker_user.get("phone"),
+                    is_email_verified=True,
+                    verification_status="verified",
+                ),
+                message="Login successful",
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password.",
+            )
+
+    # 2. Standard email login fallback
     user_res = admin.table("users").select("*").eq("email", data.email).execute()
     if not user_res.data:
         raise HTTPException(

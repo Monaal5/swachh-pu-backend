@@ -17,6 +17,24 @@ from app.models.profile import (
 from app.utils.supabase_client import get_supabase_admin
 
 
+def _enrich_worker_dict(worker_prof: dict, master_workers_map: dict) -> dict:
+    if not worker_prof:
+        return None
+    mw_id = str(worker_prof.get("master_worker_id"))
+    master = master_workers_map.get(mw_id, {})
+    return {
+        "employee_id": master.get("worker_id"),
+        "zone": worker_prof.get("zone"),
+        "id_card_image": worker_prof.get("id_card_image"),
+        "verification_status": worker_prof.get("verification_status", "verified"),
+        "address": master.get("address"),
+        "date_of_joining": master.get("date_of_joining"),
+        "department": master.get("department"),
+        "status": master.get("status"),
+        "designation": master.get("designation"),
+    }
+
+
 def _build_profile_response(profile: dict, student: Optional[dict], faculty: Optional[dict], worker: Optional[dict]) -> ProfileResponse:
     """Helper to assemble a ProfileResponse from raw DB rows."""
     student_detail = None
@@ -46,6 +64,11 @@ def _build_profile_response(profile: dict, student: Optional[dict], faculty: Opt
             zone=worker.get("zone"),
             id_card_image=worker.get("id_card_image"),
             verification_status=worker.get("verification_status", "pending"),
+            address=worker.get("address"),
+            date_of_joining=str(worker.get("date_of_joining")) if worker.get("date_of_joining") else None,
+            department=worker.get("department"),
+            status=worker.get("status"),
+            designation=worker.get("designation"),
         )
 
     return ProfileResponse(
@@ -102,7 +125,11 @@ async def _enrich_profile(profile: dict) -> ProfileResponse:
 
     elif profile["role"] == "worker":
         wp = admin.table("worker_profiles").select("*").eq("user_id", profile["user_id"]).execute()
-        worker = wp.data[0] if wp.data else None
+        if wp.data:
+            worker_prof = wp.data[0]
+            mw = admin.table("master_workers").select("*").eq("id", worker_prof["master_worker_id"]).execute()
+            mw_map = {str(mw.data[0]["id"]): mw.data[0]} if mw.data else {}
+            worker = _enrich_worker_dict(worker_prof, mw_map)
 
     return _build_profile_response(profile, student, faculty, worker)
 
@@ -112,6 +139,9 @@ async def list_profiles() -> list[ProfileResponse]:
     admin = get_supabase_admin()
 
     result = admin.table("profiles").select("*, student_profiles(*), faculty_profiles(*), worker_profiles(*)").execute()
+
+    mw_res = admin.table("master_workers").select("*").execute()
+    mw_map = {str(mw["id"]): mw for mw in mw_res.data}
 
     profiles = []
     for p in result.data:
@@ -123,7 +153,8 @@ async def list_profiles() -> list[ProfileResponse]:
             faculty = faculty_raw[0] if isinstance(faculty_raw, list) and faculty_raw else (faculty_raw if isinstance(faculty_raw, dict) else None)
 
             worker_raw = p.get("worker_profiles")
-            worker = worker_raw[0] if isinstance(worker_raw, list) and worker_raw else (worker_raw if isinstance(worker_raw, dict) else None)
+            worker_prof = worker_raw[0] if isinstance(worker_raw, list) and worker_raw else (worker_raw if isinstance(worker_raw, dict) else None)
+            worker = _enrich_worker_dict(worker_prof, mw_map) if worker_prof else None
 
             enriched = _build_profile_response(p, student, faculty, worker)
             profiles.append(enriched)
@@ -139,14 +170,15 @@ async def list_workers() -> list[ProfileResponse]:
 
     result = admin.table("profiles").select("*, worker_profiles(*)").eq("role", "worker").execute()
 
+    mw_res = admin.table("master_workers").select("*").execute()
+    mw_map = {str(mw["id"]): mw for mw in mw_res.data}
+
     profiles = []
     for p in result.data:
         try:
             worker_raw = p.get("worker_profiles")
-            if isinstance(worker_raw, list):
-                worker = worker_raw[0] if worker_raw else None
-            else:
-                worker = worker_raw
+            worker_prof = worker_raw[0] if isinstance(worker_raw, list) and worker_raw else (worker_raw if isinstance(worker_raw, dict) else None)
+            worker = _enrich_worker_dict(worker_prof, mw_map) if worker_prof else None
 
             profiles.append(_build_profile_response(p, None, None, worker))
         except Exception:
