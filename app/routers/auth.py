@@ -31,20 +31,7 @@ async def signup_faculty(data: FacultySignUpRequest):
     return await auth_service.signup_faculty(data)
 
 
-@router.get("/worker/verify-master/{worker_id}", response_model=WorkerMasterVerifyResponse)
-async def verify_worker_master(worker_id: str):
-    """Verify if Worker ID exists in MASTER_WORKERS table."""
-    return await auth_service.verify_worker_master(worker_id)
 
-
-@router.post("/signup/worker", response_model=AuthResponse, status_code=201)
-async def signup_worker(data: WorkerSignUpRequest):
-    """Register a new worker account (disabled — workers login directly)."""
-    from fastapi import HTTPException
-    raise HTTPException(
-        status_code=400,
-        detail="Worker registration is disabled. Workers must login directly using their master credentials."
-    )
 
 
 @router.post("/verify-otp")

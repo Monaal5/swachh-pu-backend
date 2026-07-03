@@ -38,17 +38,5 @@ async def verify_user(
     )
 
 
-@router.post("/workers/{worker_profile_id}/verify", dependencies=[Depends(require_role("admin"))])
-async def verify_worker(
-    worker_profile_id: str,
-    decision: AdminUserDecisionRequest,
-    current_admin: dict = Depends(get_current_user),
-):
-    """Backward compatibility endpoint to approve or reject a worker application."""
-    return await admin_service.decide_user_verification(
-        profile_id=worker_profile_id,
-        action=decision.action,
-        admin_user_id=str(current_admin["id"]),
-        rejection_reason=decision.rejection_reason,
-    )
+
 
