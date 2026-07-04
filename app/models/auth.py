@@ -25,8 +25,12 @@ def validate_password_str(v: str) -> str:
         raise ValueError("Password must be a string.")
     if not v or not v.strip():
         raise ValueError("Password cannot be empty.")
-    if len(v) < 6:
-        raise ValueError("Password must be at least 6 characters long.")
+    if len(v) < 8:
+        raise ValueError("Password must be at least 8 characters long.")
+    if not v[0].isupper():
+        raise ValueError("Password must start with an uppercase letter.")
+    if not re.search(r'[!@#$%^&*()_+\-=\[\]{};\':"\\|,.<>\/?]', v):
+        raise ValueError("Password must contain at least one special character.")
     return v
 
 
@@ -36,7 +40,7 @@ class StudentSignUpRequest(BaseModel):
     """Body for POST /auth/signup/student."""
     name: str = Field(..., min_length=1)
     email: EmailStr
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=8)
     roll_no: str = Field(..., min_length=1)
     phone: Optional[str] = None
 
@@ -57,7 +61,7 @@ class FacultySignUpRequest(BaseModel):
     """Body for POST /auth/signup/faculty."""
     name: str = Field(..., min_length=1)
     email: EmailStr
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=8)
     faculty_id: str = Field(..., min_length=1)
     faculty_type: Literal["teaching", "non_teaching"]
     id_card_image: Optional[str] = None
@@ -80,7 +84,7 @@ class FacultySignUpRequest(BaseModel):
 class WorkerSignUpRequest(BaseModel):
     """Body for POST /auth/signup/worker."""
     email: EmailStr
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=8)
     worker_id: str = Field(..., min_length=1, description="Master Worker ID e.g. EMP101")
     id_card_image: Optional[str] = None
     phone: Optional[str] = None
@@ -109,8 +113,18 @@ class ResendOTPRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     """Body for POST /auth/login."""
-    email: str
-    password: str
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def val_email(cls, v: str) -> str:
+        return validate_email_str(v)
+
+    @field_validator("password", mode="before")
+    @classmethod
+    def val_password(cls, v: str) -> str:
+        return validate_password_str(v)
 
 
 class AdminUserDecisionRequest(BaseModel):
