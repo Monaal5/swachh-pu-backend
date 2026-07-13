@@ -21,6 +21,12 @@ class TaskCreateRequest(BaseModel):
     audio_url: Optional[str] = Field(None, description="Public URL of optional audio recording")
     due_date: Optional[datetime] = Field(None, description="Optional target completion due date")
     assigned_to: Optional[UUID] = Field(None, description="Optional profile ID of worker to assign immediately upon task creation")
+    
+    # Location Hierarchy (optional)
+    location_id: Optional[int] = Field(None, description="ID of the campus location")
+    block_id: Optional[int] = Field(None, description="ID of the block/building")
+    floor_id: Optional[int] = Field(None, description="ID of the floor")
+    room_id: Optional[int] = Field(None, description="ID of the room")
 
 
 
@@ -63,6 +69,18 @@ class TaskResponse(BaseModel):
     completion_photo_url: Optional[str] = None
     completion_submitted_at: Optional[datetime] = None
     rejection_reason: Optional[str] = None
+
+    # Location Hierarchy
+    location_id: Optional[int] = None
+    block_id: Optional[int] = None
+    floor_id: Optional[int] = None
+    room_id: Optional[int] = None
+    
+    location_name: Optional[str] = None
+    block_name: Optional[str] = None
+    floor_name: Optional[str] = None
+    room_number: Optional[str] = None
+    room_name: Optional[str] = None
 
     # Optional: creator & assignee names (populated via join)
     creator_name: Optional[str] = None

@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import auth, admin, profiles, tasks, upload
+from app.routers import auth, admin, profiles, tasks, upload, locations
 
 settings = get_settings()
 
@@ -45,6 +45,7 @@ app.include_router(profiles.router)
 app.include_router(profiles.workers_router)
 app.include_router(tasks.router)
 app.include_router(upload.router)
+app.include_router(locations.router)
 
 
 # ── Health Check ─────────────────────────────────────────────

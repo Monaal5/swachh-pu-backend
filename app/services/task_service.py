@@ -33,7 +33,84 @@ def _row_to_response(row: dict) -> TaskResponse:
         rejection_reason=row.get("rejection_reason"),
         creator_name=row.get("creator_name"),
         assignee_name=row.get("assignee_name"),
+        
+        # Location Hierarchy fields
+        location_id=row.get("location_id"),
+        block_id=row.get("block_id"),
+        floor_id=row.get("floor_id"),
+        room_id=row.get("room_id"),
+        location_name=row.get("location_name"),
+        block_name=row.get("block_name"),
+        floor_name=row.get("floor_name"),
+        room_number=row.get("room_number"),
+        room_name=row.get("room_name"),
     )
+
+
+def _enrich_task_rows_batch(rows: list[dict], admin) -> list[dict]:
+    """Perform batched lookups for profiles and locations/blocks/floors/rooms to avoid N+1 queries."""
+    if not rows:
+        return rows
+        
+    profile_ids = set()
+    location_ids = set()
+    block_ids = set()
+    floor_ids = set()
+    room_ids = set()
+    
+    for row in rows:
+        if row.get("profile_id"):
+            profile_ids.add(row["profile_id"])
+        if row.get("assigned_to"):
+            profile_ids.add(row["assigned_to"])
+        if row.get("location_id"):
+            location_ids.add(row["location_id"])
+        if row.get("block_id"):
+            block_ids.add(row["block_id"])
+        if row.get("floor_id"):
+            floor_ids.add(row["floor_id"])
+        if row.get("room_id"):
+            room_ids.add(row["room_id"])
+            
+    profiles_map = {}
+    if profile_ids:
+        res = admin.table("profiles").select("id, name").in_("id", list(profile_ids)).execute()
+        profiles_map = {p["id"]: p["name"] for p in res.data}
+        
+    locations_map = {}
+    if location_ids:
+        res = admin.table("locations").select("id, name").in_("id", list(location_ids)).execute()
+        locations_map = {l["id"]: l["name"] for l in res.data}
+        
+    blocks_map = {}
+    if block_ids:
+        res = admin.table("blocks").select("id, name").in_("id", list(block_ids)).execute()
+        blocks_map = {b["id"]: b["name"] for b in res.data}
+        
+    floors_map = {}
+    if floor_ids:
+        res = admin.table("floors").select("id, name").in_("id", list(floor_ids)).execute()
+        floors_map = {f["id"]: f["name"] for f in res.data}
+        
+    rooms_map = {}
+    if room_ids:
+        res = admin.table("rooms").select("id, room_number, name").in_("id", list(room_ids)).execute()
+        rooms_map = {r["id"]: (r["room_number"], r["name"]) for r in res.data}
+        
+    for row in rows:
+        row["creator_name"] = profiles_map.get(row.get("profile_id"))
+        row["assignee_name"] = profiles_map.get(row.get("assigned_to")) if row.get("assigned_to") else None
+        
+        row["location_name"] = locations_map.get(row.get("location_id"))
+        row["block_name"] = blocks_map.get(row.get("block_id"))
+        row["floor_name"] = floors_map.get(row.get("floor_id"))
+        
+        room_info = rooms_map.get(row.get("room_id"))
+        if room_info:
+            row["room_number"] = room_info[0]
+            row["room_name"] = room_info[1]
+            
+    return rows
 
 
 async def create_task(data: TaskCreateRequest, profile_id: str) -> TaskResponse:
@@ -55,6 +132,15 @@ async def create_task(data: TaskCreateRequest, profile_id: str) -> TaskResponse:
     if data.assigned_to:
         task_data["assigned_to"] = str(data.assigned_to)
 
+    # Optional Location Hierarchy
+    if data.location_id is not None:
+        task_data["location_id"] = data.location_id
+    if data.block_id is not None:
+        task_data["block_id"] = data.block_id
+    if data.floor_id is not None:
+        task_data["floor_id"] = data.floor_id
+    if data.room_id is not None:
+        task_data["room_id"] = data.room_id
 
     try:
         result = admin.table("tasks").insert(task_data).execute()
@@ -70,7 +156,8 @@ async def create_task(data: TaskCreateRequest, profile_id: str) -> TaskResponse:
             detail="Task creation returned no data",
         )
 
-    return _row_to_response(result.data[0])
+    enriched = _enrich_task_rows_batch(result.data, admin)[0]
+    return _row_to_response(enriched)
 
 
 async def get_task(task_id: str) -> TaskResponse:
@@ -86,19 +173,8 @@ async def get_task(task_id: str) -> TaskResponse:
         )
 
     task = result.data[0]
-
-    # Enrich with creator name
-    creator_result = admin.table("profiles").select("name").eq("id", task["profile_id"]).execute()
-    if creator_result.data:
-        task["creator_name"] = creator_result.data[0]["name"]
-
-    # Enrich with assignee name
-    if task.get("assigned_to"):
-        assignee_result = admin.table("profiles").select("name").eq("id", task["assigned_to"]).execute()
-        if assignee_result.data:
-            task["assignee_name"] = assignee_result.data[0]["name"]
-
-    return _row_to_response(task)
+    enriched = _enrich_task_rows_batch([task], admin)[0]
+    return _row_to_response(enriched)
 
 
 async def list_tasks(
@@ -127,7 +203,8 @@ async def list_tasks(
 
     result = query.execute()
 
-    tasks = [_row_to_response(row) for row in result.data]
+    enriched_rows = _enrich_task_rows_batch(result.data, admin)
+    tasks = [_row_to_response(row) for row in enriched_rows]
     total = result.count if result.count is not None else len(tasks)
 
     return tasks, total
@@ -145,7 +222,8 @@ async def get_my_tasks(profile_id: str) -> list[TaskResponse]:
         .execute()
     )
 
-    return [_row_to_response(row) for row in result.data]
+    enriched_rows = _enrich_task_rows_batch(result.data, admin)
+    return [_row_to_response(row) for row in enriched_rows]
 
 
 async def assign_task(task_id: str, worker_profile_id: str, due_date: Optional[datetime] = None) -> TaskStatusResponse:
