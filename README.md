@@ -137,7 +137,7 @@ app/
 │   ├── profiles.py
 │   ├── tasks.py
 │   └── upload.py
-├── services/            # Supabase query logic
+├── services/            # business logic + database queries
 │   ├── auth_service.py
 │   ├── profile_service.py
 │   ├── task_service.py
