@@ -2,58 +2,57 @@
 
 Backend API for **Swachh PU Abhiyaan** — campus cleanliness task management system.
 
-Built with **FastAPI** + **Supabase** (Auth, PostgreSQL, Storage).
+Built with **FastAPI** + **PostgreSQL (Neon)**.
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Clone & Install
+Built with **FastAPI** + **PostgreSQL** (hosted on [Neon](https://neon.tech)). Supabase is no longer used:
+uploaded photos and audio are stored in the database and served by the API at `/media/...`.
+
+### 1. Create a free Neon database
+
+1. Sign up at [neon.tech](https://neon.tech) → **Create project** (region: AWS Asia Pacific (Singapore) is closest to India).
+2. Click **Connect**, tick **Connection pooling**, and copy the connection string
+   (`postgresql://...-pooler...neon.tech/neondb?sslmode=require`).
+
+### 2. Install and configure
 
 ```bash
-git clone https://github.com/kartikey004/swachh-pu-backend.git
+git clone https://github.com/Monaal5/swachh-pu-backend.git
 cd swachh-pu-backend
-
-# Create virtual environment
 python -m venv venv
-venv\Scripts\activate    # Windows
-# source venv/bin/activate  # macOS/Linux
-
-# Install dependencies
+venv\Scripts\activate          # Windows   (macOS/Linux: source venv/bin/activate)
 pip install -r requirements.txt
+copy .env.example .env          # Windows   (macOS/Linux: cp .env.example .env)
 ```
 
-### 2. Configure Supabase
+Paste the Neon URL into `DATABASE_URL` in `.env`.
 
-1. Go to [supabase.com](https://supabase.com) → Create a new project
-2. Go to **Settings → API** and copy your keys
-3. Create `.env` file from template:
+### 3. Create tables, campus data and an admin (one time)
 
 ```bash
-copy .env.example .env
+python scripts/init_db.py --admin-email admin@pu.ac.in --admin-password "Admin@12345" --demo-workers
 ```
 
-4. Fill in your Supabase credentials in `.env`:
+This creates all tables (`db/schema.sql`), loads 297 UIET rooms from the spreadsheets, creates the admin,
+and (with `--demo-workers`) adds sample workers `ramesh.kumar@swachh.pu / Ramesh@101`,
+`suresh.singh@swachh.pu / Suresh@102`, `anita.devi@swachh.pu / Anita@103`. Safe to run again.
 
-```env
-SUPABASE_URL=https://your-project-id.supabase.co
-SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-```
-
-### 3. Setup Database
-
-1. Go to Supabase Dashboard → **SQL Editor**
-2. Copy and run the contents of `supabase/schema.sql`
-3. This creates all tables, indexes, RLS policies, and storage buckets
-
-### 4. Run the Server
+### 4. Run locally
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-Server runs at: **http://localhost:8000**
+Open http://localhost:8000/health — it should say `"database": "connected"`.
+
+### 5. Deploy on Vercel
+
+In the Vercel project → **Settings → Environment Variables**, add `DATABASE_URL` (the Neon pooled URL) and,
+optionally, the `SMTP_*` variables. Remove the old `SUPABASE_*` variables, then redeploy.
+Note: Vercel limits request bodies to about 4.5 MB, so the app should compress photos before uploading.
 
 ---
 
@@ -95,11 +94,12 @@ Once the server is running, visit:
 | PATCH | `/tasks/{id}/reject` | Reject task | ✅ Admin |
 | PATCH | `/tasks/{id}/complete` | Complete task | ✅ Worker |
 
-### Upload
+### Upload & Media
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
 | POST | `/upload/photo` | Upload photo | ✅ |
 | POST | `/upload/audio` | Upload audio | ✅ |
+| GET | `/media/{bucket}/{path}` | Download an uploaded file | ❌ |
 
 ---
 
@@ -143,7 +143,7 @@ app/
 │   ├── task_service.py
 │   └── storage_service.py
 └── utils/
-    └── supabase_client.py
+    └── db.py            # PostgreSQL access layer + media storage
 ```
 
 ---

@@ -1,5 +1,5 @@
 """
-Profile service — Supabase queries for profile CRUD.
+Profile service — database queries for profile CRUD.
 """
 
 from typing import Optional
@@ -14,7 +14,7 @@ from app.models.profile import (
     WorkerProfileDetail,
     UpdateProfileRequest,
 )
-from app.utils.supabase_client import get_supabase_admin
+from app.utils.db import get_db
 
 
 def _enrich_worker_dict(worker_prof: dict, master_workers_map: dict) -> dict:
@@ -86,7 +86,7 @@ def _build_profile_response(profile: dict, student: Optional[dict], faculty: Opt
 
 async def get_profile_by_user_id(user_id: str) -> ProfileResponse:
     """Get full profile (base + role-specific) by auth user_id."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     result = admin.table("profiles").select("*").eq("user_id", user_id).execute()
     if not result.data:
@@ -98,7 +98,7 @@ async def get_profile_by_user_id(user_id: str) -> ProfileResponse:
 
 async def get_profile_by_id(profile_id: str) -> ProfileResponse:
     """Get full profile by profile ID."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     result = admin.table("profiles").select("*").eq("id", profile_id).execute()
     if not result.data:
@@ -110,7 +110,7 @@ async def get_profile_by_id(profile_id: str) -> ProfileResponse:
 
 async def _enrich_profile(profile: dict) -> ProfileResponse:
     """Fetch role-specific data and build full response."""
-    admin = get_supabase_admin()
+    admin = get_db()
     student = None
     faculty = None
     worker = None
@@ -136,7 +136,7 @@ async def _enrich_profile(profile: dict) -> ProfileResponse:
 
 async def list_profiles() -> list[ProfileResponse]:
     """List all profiles."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     result = admin.table("profiles").select("*, student_profiles(*), faculty_profiles(*), worker_profiles(*)").execute()
 
@@ -166,7 +166,7 @@ async def list_profiles() -> list[ProfileResponse]:
 
 async def list_workers() -> list[ProfileResponse]:
     """List all worker profiles (for admin assignment dropdown)."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     result = admin.table("profiles").select("*, worker_profiles(*)").eq("role", "worker").execute()
 
@@ -189,7 +189,7 @@ async def list_workers() -> list[ProfileResponse]:
 
 async def update_profile(user: dict, data: UpdateProfileRequest) -> ProfileResponse:
     """Update the current user's profile (base + role-specific fields)."""
-    admin = get_supabase_admin()
+    admin = get_db()
     profile_id = user["id"]
 
     # Update base profile fields
@@ -213,7 +213,7 @@ async def update_profile(user: dict, data: UpdateProfileRequest) -> ProfileRespo
             student_updates["hostel"] = data.hostel
 
         if student_updates:
-            admin.table("student_profiles").update(student_updates).eq("profile_id", profile_id).execute()
+            admin.table("student_profiles").update(student_updates).eq("user_id", profile_id).execute()
 
     elif user["role"] == "worker":
         worker_updates = {}
@@ -223,7 +223,7 @@ async def update_profile(user: dict, data: UpdateProfileRequest) -> ProfileRespo
             worker_updates["zone"] = data.zone
 
         if worker_updates:
-            admin.table("worker_profiles").update(worker_updates).eq("profile_id", profile_id).execute()
+            admin.table("worker_profiles").update(worker_updates).eq("user_id", profile_id).execute()
 
     # Return updated profile
     return await get_profile_by_id(profile_id)

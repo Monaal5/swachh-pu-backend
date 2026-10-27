@@ -14,10 +14,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 load_dotenv()
 
-from app.utils.supabase_client import get_supabase_admin
+from app.utils.db import get_db
 
 def seed_hierarchy():
-    admin = get_supabase_admin()
+    admin = get_db()
     
     print("Initializing Seeding process...")
 

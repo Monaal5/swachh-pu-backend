@@ -19,7 +19,7 @@ from app.models.auth import (
     WorkerMasterVerifyResponse,
 )
 from app.services.otp_service import generate_and_save_otp
-from app.utils.supabase_client import get_supabase_admin
+from app.utils.db import get_db
 
 
 # ── Password Hashing Helpers ─────────────────────────────────
@@ -56,7 +56,7 @@ def generate_tokens(user_id: str, role: str) -> tuple[str, str]:
 
 async def verify_worker_master(worker_id: str) -> WorkerMasterVerifyResponse:
     """Verify if Worker ID exists in MASTER_WORKERS table."""
-    admin = get_supabase_admin()
+    admin = get_db()
     res = (
         admin.table("master_workers")
         .select("*")
@@ -84,7 +84,7 @@ async def verify_worker_master(worker_id: str) -> WorkerMasterVerifyResponse:
 
 async def signup_student(data: StudentSignUpRequest) -> AuthResponse:
     """1. Student Registration Flow."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     # Check email uniqueness
     existing_user = admin.table("users").select("*").eq("email", data.email).execute()
@@ -156,7 +156,7 @@ async def signup_student(data: StudentSignUpRequest) -> AuthResponse:
 
 async def signup_faculty(data: FacultySignUpRequest) -> AuthResponse:
     """2. Faculty Registration Flow."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     # Check email uniqueness
     existing_user = admin.table("users").select("*").eq("email", data.email).execute()
@@ -228,7 +228,7 @@ async def signup_faculty(data: FacultySignUpRequest) -> AuthResponse:
 
 async def signup_worker(data: WorkerSignUpRequest) -> AuthResponse:
     """3. Worker Registration Flow."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     # 1. Verify Master Worker ID
     mw_info = await verify_worker_master(data.worker_id)
@@ -296,7 +296,7 @@ async def signup_worker(data: WorkerSignUpRequest) -> AuthResponse:
 
 async def login_user(data: LoginRequest) -> AuthResponse:
     """Login with email + password verification."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     # 1. Check if the email belongs to a pre-registered master worker
     mw_res = (

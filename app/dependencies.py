@@ -4,7 +4,7 @@ FastAPI dependencies — injectable auth & role checks.
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from app.utils.supabase_client import get_supabase_client, get_supabase_admin
+from app.utils.db import get_db
 
 security = HTTPBearer(auto_error=True)
 
@@ -15,7 +15,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     Returns the user row from the `users` table.
     """
     token = credentials.credentials
-    admin_client = get_supabase_admin()
+    admin_client = get_db()
 
     # If mock/custom token format e.g. swachh_access_{user_id}_...
     if token.startswith("swachh_access_"):
@@ -27,22 +27,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 return res.data[0]
         except Exception:
             pass
-
-    # Standard Supabase JWT fallback
-    supabase = get_supabase_client()
-    try:
-        user_response = supabase.auth.get_user(token)
-        auth_user = user_response.user
-        if auth_user is not None:
-            res = admin_client.table("users").select("*").eq("id", str(auth_user.id)).execute()
-            if res.data:
-                return res.data[0]
-            # fallback check profiles if users record missing
-            prof_res = admin_client.table("profiles").select("*").eq("user_id", str(auth_user.id)).execute()
-            if prof_res.data:
-                return prof_res.data[0]
-    except Exception:
-        pass
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -56,7 +40,7 @@ async def check_user_verification(user: dict) -> str:
     if role in ("admin", "student"):
         return "verified"
 
-    admin_client = get_supabase_admin()
+    admin_client = get_db()
     if role == "faculty":
         fp_res = admin_client.table("faculty_profiles").select("verification_status").eq("user_id", user["id"]).execute()
         if fp_res.data:

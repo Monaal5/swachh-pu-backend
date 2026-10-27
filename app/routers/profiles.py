@@ -55,16 +55,6 @@ async def list_workers(user: dict = Depends(require_role("admin"))):
     return ProfileListResponse(profiles=workers, count=len(workers))
 
 
-@router.get("/{profile_id}", response_model=ProfileResponse)
-async def get_profile(profile_id: str, user: dict = Depends(require_role("admin"))):
-    """
-    Get any profile by ID.
-
-    **Admin only**.
-    """
-    return await profile_service.get_profile_by_id(profile_id)
-
-
 @router.get("/list", response_model=ProfileListResponse)
 async def list_profiles_api(user: dict = Depends(get_current_user)):
     """
@@ -85,6 +75,17 @@ async def list_workers_authenticated(user: dict = Depends(get_current_user)):
     """
     workers = await profile_service.list_workers()
     return ProfileListResponse(profiles=workers, count=len(workers))
+
+
+# Declared last so /list and /workers/list are not captured as a profile ID
+@router.get("/{profile_id}", response_model=ProfileResponse)
+async def get_profile(profile_id: str, user: dict = Depends(require_role("admin"))):
+    """
+    Get any profile by ID.
+
+    **Admin only**.
+    """
+    return await profile_service.get_profile_by_id(profile_id)
 
 
 # Separate top-level router for /workers

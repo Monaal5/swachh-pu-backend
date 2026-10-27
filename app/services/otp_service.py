@@ -9,7 +9,7 @@ from email.mime.text import MIMEText
 from email.utils import formataddr
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, status
-from app.utils.supabase_client import get_supabase_admin
+from app.utils.db import get_db
 from app.config import get_settings
 
 MASTER_TEST_OTP = "123456"  # Static master OTP for testing convenience
@@ -69,7 +69,7 @@ async def generate_and_save_otp(user_id: str, email: str = None) -> str:
     Generate a 6-digit numeric OTP, save to `email_otps` table with 15-min expiration.
     Returns the generated OTP string.
     """
-    admin = get_supabase_admin()
+    admin = get_db()
     otp_code = f"{random.randint(100000, 999999)}"
     expires_at = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
 
@@ -106,7 +106,7 @@ async def resend_email_otp(email: str) -> dict:
     """
     Resend a fresh OTP to the given email address.
     """
-    admin = get_supabase_admin()
+    admin = get_db()
 
     user_res = admin.table("users").select("*").eq("email", email).execute()
     if not user_res.data:
@@ -129,7 +129,7 @@ async def get_latest_otp_for_email(email: str) -> dict:
     """
     Development endpoint to fetch the active OTP for an email.
     """
-    admin = get_supabase_admin()
+    admin = get_db()
 
     user_res = admin.table("users").select("*").eq("email", email).execute()
     if not user_res.data:
@@ -162,7 +162,7 @@ async def verify_email_otp(email: str, otp_code: str) -> dict:
     Verify OTP code for given email. Supports both generated OTP and Master Test OTP (123456).
     Marks OTP as used and updates user is_email_verified=True.
     """
-    admin = get_supabase_admin()
+    admin = get_db()
 
     # 1. Fetch user by email
     user_res = admin.table("users").select("*").eq("email", email).execute()

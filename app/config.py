@@ -10,12 +10,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """All config is read from environment variables / .env file."""
 
-    # Supabase connection
-    supabase_url: str
-    supabase_anon_key: str
-    supabase_service_role_key: str
+    # PostgreSQL connection string (Neon: use the "Pooled connection" URL)
+    database_url: str
 
-    # Storage bucket names
+    # Public URL of this API, used to build links to uploaded media.
+    # Optional on Vercel (derived from VERCEL_PROJECT_PRODUCTION_URL).
+    public_base_url: str = ""
+
+    # Media bucket names (photos / audio are stored in the `media` table)
     photo_bucket: str = "task-photos"
     audio_bucket: str = "task-audio"
 

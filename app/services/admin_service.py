@@ -6,12 +6,12 @@ from datetime import datetime, timezone
 from typing import List
 from fastapi import HTTPException, status
 from app.models.auth import PendingUserResponse
-from app.utils.supabase_client import get_supabase_admin
+from app.utils.db import get_db
 
 
 async def get_pending_users() -> List[PendingUserResponse]:
     """Fetch all registration requests pending admin verification across students, faculty, and workers."""
-    admin = get_supabase_admin()
+    admin = get_db()
     results = []
 
     # 1. Fetch pending student profiles
@@ -92,7 +92,7 @@ async def decide_user_verification(
     rejection_reason: str = None
 ) -> dict:
     """Approve or reject a user application (student, faculty, or worker)."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     target_table = None
     profile = None

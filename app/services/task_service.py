@@ -1,5 +1,5 @@
 """
-Task service — Supabase queries for task CRUD and status transitions.
+Task service — database queries for task CRUD and status transitions.
 """
 
 from typing import Optional
@@ -8,7 +8,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 
 from app.models.task import TaskCreateRequest, TaskResponse, TaskStatusResponse
-from app.utils.supabase_client import get_supabase_admin
+from app.utils.db import get_db
 
 
 from datetime import datetime, timezone
@@ -115,7 +115,7 @@ def _enrich_task_rows_batch(rows: list[dict], admin) -> list[dict]:
 
 async def create_task(data: TaskCreateRequest, profile_id: str) -> TaskResponse:
     """Create a new task (status defaults to 'pending' unless assigned_to is specified)."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     initial_status = "assigned" if data.assigned_to else "pending"
     task_data = {
@@ -162,7 +162,7 @@ async def create_task(data: TaskCreateRequest, profile_id: str) -> TaskResponse:
 
 async def get_task(task_id: str) -> TaskResponse:
     """Get a single task by ID."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     result = admin.table("tasks").select("*").eq("id", task_id).execute()
 
@@ -188,7 +188,7 @@ async def list_tasks(
     List tasks with optional filters.
     Returns (tasks, total_count).
     """
-    admin = get_supabase_admin()
+    admin = get_db()
 
     query = admin.table("tasks").select("*", count="exact")
 
@@ -212,7 +212,7 @@ async def list_tasks(
 
 async def get_my_tasks(profile_id: str) -> list[TaskResponse]:
     """Get tasks assigned to a specific worker."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     result = (
         admin.table("tasks")
@@ -228,7 +228,7 @@ async def get_my_tasks(profile_id: str) -> list[TaskResponse]:
 
 async def assign_task(task_id: str, worker_profile_id: str, due_date: Optional[datetime] = None) -> TaskStatusResponse:
     """Assign a pending task to a worker (admin action)."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     # Verify task exists and is in valid state
     task = await get_task(task_id)
@@ -260,7 +260,7 @@ async def assign_task(task_id: str, worker_profile_id: str, due_date: Optional[d
 
 async def reject_task(task_id: str) -> TaskStatusResponse:
     """Reject a pending task (admin action)."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     task = await get_task(task_id)
     if task.status not in ("pending",):
@@ -280,7 +280,7 @@ async def submit_task_verification(
     completion_photo_url: str,
 ) -> TaskStatusResponse:
     """Submit proof photo for task verification (worker action)."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     task = await get_task(task_id)
     if str(task.assigned_to) != worker_profile_id:
@@ -312,7 +312,7 @@ async def submit_task_verification(
 
 async def approve_task_verification(task_id: str) -> TaskStatusResponse:
     """Approve completed task photo proof (admin action)."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     task = await get_task(task_id)
     if task.status != "pending_verification":
@@ -332,7 +332,7 @@ async def approve_task_verification(task_id: str) -> TaskStatusResponse:
 
 async def reject_task_verification(task_id: str, rejection_reason: str) -> TaskStatusResponse:
     """Reject completed task photo proof and request rework (admin action)."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     task = await get_task(task_id)
     if task.status != "pending_verification":
@@ -355,7 +355,7 @@ async def reject_task_verification(task_id: str, rejection_reason: str) -> TaskS
 
 async def complete_task(task_id: str, worker_profile_id: str) -> TaskStatusResponse:
     """Legacy complete endpoint alias for backward compatibility."""
-    admin = get_supabase_admin()
+    admin = get_db()
 
     task = await get_task(task_id)
     if task.status not in ("assigned", "pending_verification"):

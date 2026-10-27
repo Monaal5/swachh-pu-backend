@@ -8,7 +8,7 @@ from datetime import datetime
 from fastapi import HTTPException, UploadFile, status
 
 from app.config import get_settings
-from app.utils.supabase_client import get_supabase_admin
+from app.utils.db import get_db
 
 
 # Allowed MIME types
@@ -51,7 +51,7 @@ async def upload_photo(file: UploadFile) -> str:
         )
 
     settings = get_settings()
-    admin = get_supabase_admin()
+    admin = get_db()
 
     file_path = _generate_filename(file.filename or "photo.jpg", "photos")
 
@@ -94,7 +94,7 @@ async def upload_audio(file: UploadFile) -> str:
         )
 
     settings = get_settings()
-    admin = get_supabase_admin()
+    admin = get_db()
 
     file_path = _generate_filename(file.filename or "audio.mp3", "audio")
 
